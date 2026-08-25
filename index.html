@@ -83,24 +83,7 @@
     }
 
     button:active { background: #ff9ec8; color: #111; }
-    button:disabled { opacity: 0.35; cursor: not-allowed; }
-
-    #rotate-msg {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: #111;
-      color: #ff9ec8;
-      font-size: 11px;
-      align-items: center;
-      justify-content: center;
-      z-index: 999;
-      letter-spacing: 3px;
-      text-align: center;
-    }
-
-    @media (orientation: portrait) and (max-width: 1024px) {
-      #rotate-msg { display: flex; }
+    button:disabled { opacity: 0.35; cursor: not-allowed; 
     }
   </style>
 
@@ -460,7 +443,6 @@
 
     btn.addEventListener("click", e => {
       e.target.disabled = true;
-      if (screen.orientation?.lock) screen.orientation.lock("landscape").catch(() => {});
       initAudio();
       audioCtx.resume();
       initTracker();
@@ -469,7 +451,6 @@
 </head>
 <body>
 
-  <div id="rotate-msg">ROTATE TO LANDSCAPE ↻</div>
 
   <div id="wrap">
     <div id="crt">
