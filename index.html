@@ -28,7 +28,7 @@
       aspect-ratio: 4 / 3;
       border: 4px solid #000;
       background: #000;
-      max-height: 80vh;
+      max-height: 90vh;
     }
 
     #crt-container::after {
@@ -66,19 +66,19 @@
     }
 
     button {
-      background: light-pink;
-      color: black;
+      background: #222;
+      color: #00ff66;
       padding: 10px 16px;
       font-family: 'Orbitron', sans-serif;
       font-size: 11px;
-      border: 2px solid pink;
+      border: 2px solid #00ff66;
       cursor: pointer;
       transition: all 0.1s;
     }
 
     button:active {
-      background: white;
-      color: pink;
+      background: #00ff66;
+      color: #222;
     }
 
     button:disabled {
@@ -89,14 +89,14 @@
     #status {
       margin-top: 10px;
       font-size: 10px;
-      color: pink;
+      color: #00ff66;
       font-family: 'Orbitron', sans-serif;
       min-height: 15px;
     }
 
     #footer {
       font-size: 8px;
-      color: #fbfbfb;
+      color: #666;
       margin-top: 8px;
       font-family: monospace;
     }
@@ -177,29 +177,20 @@
     function startCamera() {
       navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } })
         .then((stream) => {
-          statusText.innerText = "STREAM RECEIVED";
           video.srcObject = stream;
+          video.autoplay = true;
+          video.muted = true;
+          video.playsinline = true;
           
           video.onloadedmetadata = () => {
-            statusText.innerText = "METADATA LOADED";
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            video.play().catch(err => {
-              statusText.innerText = "PLAY FAILED: " + err.message;
-            });
-          };
-
-          video.onplaying = () => {
-            statusText.innerText = "PLAYING NOW";
-            predictWebcam();
-          };
-
-          video.onerror = (err) => {
-            statusText.innerText = "VIDEO ERROR";
+            statusText.innerText = "CAMERA READY";
+            setTimeout(predictWebcam, 100);
           };
         })
         .catch((err) => {
-          statusText.innerText = "CAM ERROR: " + err.name;
+          statusText.innerText = "CAM ERROR";
           startBtn.disabled = false;
         });
     }
