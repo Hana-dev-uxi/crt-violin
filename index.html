@@ -179,7 +179,11 @@
         .then((stream) => {
           video.srcObject = stream;
           video.play();
-          video.addEventListener("loadeddata", predictWebcam);
+          video.style.opacity = "0.5";
+          video.addEventListener("loadeddata", () => {
+  statusText.innerText = "VIDEO STREAM OK";
+  predictWebcam();
+});
         })
         .catch(() => {
           statusText.innerText = "CAMERA DENIED";
