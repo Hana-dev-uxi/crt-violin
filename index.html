@@ -4,47 +4,39 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="screen-orientation" content="landscape">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Retro CRT Violin</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    
+
     body {
       background: #1a1a1a;
-      color: #222;
       font-family: 'Orbitron', sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
-      padding: 10px;
+      height: 100dvh;
       overflow: hidden;
     }
 
     #crt-container {
       position: relative;
       width: 100%;
-      max-width: 1200px;
-      aspect-ratio: 4 / 3;
-      border: 4px solid #000;
+      height: 80dvh;
       background: #000;
-      max-height: 80vh;
+      border: 3px solid #111;
     }
 
     #crt-container::after {
       content: "";
       position: absolute;
-      top: 0;
-      left: 0;
-      bottom: 0;
-      right: 0;
+      inset: 0;
       background: repeating-linear-gradient(
         0deg,
-        rgba(0, 0, 0, 0.15) 0px,
-        rgba(0, 0, 0, 0.15) 1px,
+        rgba(0,0,0,0.12) 0px,
+        rgba(0,0,0,0.12) 1px,
         transparent 1px,
         transparent 2px
       );
@@ -52,111 +44,198 @@
       z-index: 10;
     }
 
-    video, canvas {
+    video {
       position: absolute;
       width: 100%;
       height: 100%;
+      object-fit: cover;
       transform: scaleX(-1);
       display: block;
     }
 
-    #controls {
-      margin-top: 15px;
+    canvas {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      display: block;
+      z-index: 5;
+    }
+
+    #ui-bottom {
+      width: 100%;
       display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-
-    button {
-      background: light-pink;
-      color: black;
-      padding: 10px 16px;
-      font-family: 'Orbitron', sans-serif;
-      font-size: 11px;
-      border: 2px solid pink;
-      cursor: pointer;
-      transition: all 0.1s;
-    }
-
-    button:active {
-      background: grey;
-      color: pink;
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 14px;
+      height: 20dvh;
     }
 
     #status {
-      margin-top: 10px;
-      font-size: 10px;
-      color: pink;
+      font-size: 9px;
+      color: #ffaacc;
+      letter-spacing: 1px;
+    }
+
+    button {
+      background: transparent;
+      color: #ffaacc;
+      padding: 8px 18px;
       font-family: 'Orbitron', sans-serif;
-      min-height: 15px;
+      font-size: 10px;
+      border: 1.5px solid #ffaacc;
+      cursor: pointer;
+      transition: all 0.1s;
+      letter-spacing: 1px;
+    }
+
+    button:active {
+      background: #ffaacc;
+      color: #111;
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
     }
 
     #footer {
-      font-size: 8px;
-      color: #fbfbfb;
-      margin-top: 8px;
+      font-size: 7px;
+      color: #444;
       font-family: monospace;
     }
 
-    @media (max-width: 600px) {
-      body {
-        padding: 5px;
-      }
+    #rotate-prompt {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #111;
+      color: #ffaacc;
+      font-size: 12px;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      text-align: center;
+      letter-spacing: 2px;
+    }
 
-      #crt-container {
-        max-height: 70vh;
-      }
-
-      button {
-        padding: 8px 12px;
-        font-size: 9px;
-      }
-
-      #status {
-        font-size: 9px;
-      }
+    @media (orientation: portrait) and (max-width: 900px) {
+      #rotate-prompt { display: flex; }
     }
   </style>
 
   <script type="module">
     import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35";
 
-    let audioCtx, osc, gainNode;
-    let handLandmarker;
-    const video = document.getElementById("webcam");
-    const canvas = document.getElementById("output");
-    const ctx = canvas.getContext("2d");
-    const statusText = document.getElementById("status");
+    const video    = document.getElementById("webcam");
+    const canvas   = document.getElementById("output");
+    const ctx      = canvas.getContext("2d");
+    const statusEl = document.getElementById("status");
     const startBtn = document.getElementById("start-btn");
 
-    const openStrings = [196.00, 293.66, 440.00, 659.25];
+    let audioCtx, gainNode;
+    let oscillators = [];
+    let handLandmarker;
+    let activeStringIdx = -1;
+    let pitchMod = 0.5;
+    let lastVideoTime = -1;
+
+    const strings = [
+      { name: "G3", freq: 196.00, color: "#ff6eb4" },
+      { name: "D4", freq: 293.66, color: "#ff9ecc" },
+      { name: "A4", freq: 440.00, color: "#ffbdde" },
+      { name: "E5", freq: 659.25, color: "#ffd6ec" },
+    ];
+
+    const stringNotes = {
+      "G3": ["G3","A3","B3","C4","D4","E4","F#4","G4"],
+      "D4": ["D4","E4","F#4","G4","A4","B4","C5","D5"],
+      "A4": ["A4","B4","C5","D5","E5","F#5","G5","A5"],
+      "E5": ["E5","F#5","G5","A5","B5","C6","D6","E6"],
+    };
+
+    const freqRatios = [1, 9/8, 5/4, 4/3, 3/2, 5/3, 15/8, 2];
 
     function initAudio() {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      osc = audioCtx.createOscillator();
-      osc.type = "sawtooth";
 
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = 1400;
+      const masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.6;
+      masterGain.connect(audioCtx.destination);
 
       gainNode = audioCtx.createGain();
       gainNode.gain.value = 0;
+      gainNode.connect(masterGain);
 
-      osc.connect(filter);
-      filter.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      osc.start();
+      oscillators = strings.map((s, i) => {
+        const osc = audioCtx.createOscillator();
+        osc.type = "sawtooth";
+        osc.frequency.value = s.freq;
+
+        const gain = audioCtx.createGain();
+        gain.gain.value = i === 0 ? 1 : 0.6 - i * 0.08;
+
+        const harm2 = audioCtx.createOscillator();
+        harm2.type = "sawtooth";
+        harm2.frequency.value = s.freq * 2;
+        const gain2 = audioCtx.createGain();
+        gain2.gain.value = 0.25;
+
+        const harm3 = audioCtx.createOscillator();
+        harm3.type = "sawtooth";
+        harm3.frequency.value = s.freq * 3;
+        const gain3 = audioCtx.createGain();
+        gain3.gain.value = 0.12;
+
+        const harm4 = audioCtx.createOscillator();
+        harm4.type = "sawtooth";
+        harm4.frequency.value = s.freq * 4;
+        const gain4 = audioCtx.createGain();
+        gain4.gain.value = 0.06;
+
+        const lp = audioCtx.createBiquadFilter();
+        lp.type = "lowpass";
+        lp.frequency.value = 2200;
+        lp.Q.value = 1.2;
+
+        const hp = audioCtx.createBiquadFilter();
+        hp.type = "highpass";
+        hp.frequency.value = 120;
+
+        const formant = audioCtx.createBiquadFilter();
+        formant.type = "peaking";
+        formant.frequency.value = 800;
+        formant.gain.value = 4;
+        formant.Q.value = 2;
+
+        harm2.connect(gain2); gain2.connect(lp);
+        harm3.connect(gain3); gain3.connect(lp);
+        harm4.connect(gain4); gain4.connect(lp);
+        osc.connect(gain); gain.connect(lp);
+        lp.connect(hp); hp.connect(formant); formant.connect(gainNode);
+
+        osc.start(); harm2.start(); harm3.start(); harm4.start();
+        return { osc, harm2, harm3, harm4 };
+      });
+    }
+
+    function setFrequency(baseFreq, mod) {
+      const noteIdx = Math.min(7, Math.floor(mod * 8));
+      const ratio   = freqRatios[noteIdx];
+      const f       = baseFreq * ratio;
+
+      oscillators.forEach(({ osc, harm2, harm3, harm4 }) => {
+        const scale = f / osc.frequency.value;
+        osc.frequency.setTargetAtTime(f, audioCtx.currentTime, 0.008);
+        harm2.frequency.setTargetAtTime(f * 2, audioCtx.currentTime, 0.008);
+        harm3.frequency.setTargetAtTime(f * 3, audioCtx.currentTime, 0.008);
+        harm4.frequency.setTargetAtTime(f * 4, audioCtx.currentTime, 0.008);
+      });
+
+      return { noteIdx, freq: f };
     }
 
     async function initTracker() {
-      statusText.innerText = "LOADING VISION...";
+      statusEl.innerText = "LOADING VISION...";
       try {
         const vision = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm"
@@ -167,125 +246,251 @@
             delegate: "CPU"
           },
           runningMode: "VIDEO",
-          numHands: 2
+          numHands: 2,
+          minHandDetectionConfidence: 0.6,
+          minHandPresenceConfidence: 0.6,
+          minTrackingConfidence: 0.6
         });
-        statusText.innerText = "CAMERA ACTIVE";
+        statusEl.innerText = "READY";
         startCamera();
-      } catch (err) {
-        statusText.innerText = "LOAD FAILED";
+      } catch {
+        statusEl.innerText = "LOAD FAILED";
         startBtn.disabled = false;
       }
     }
 
     function startCamera() {
-      navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } })
+      const constraints = {
+        video: {
+          facingMode: "user",
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        }
+      };
+      navigator.mediaDevices.getUserMedia(constraints)
         .then((stream) => {
           video.srcObject = stream;
-          video.autoplay = true;
           video.muted = true;
-          video.playsinline = true;
-          
+          video.playsInline = true;
+          video.autoplay = true;
           video.onloadedmetadata = () => {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            statusText.innerText = "CAMERA READY";
-            setTimeout(predictWebcam, 100);
+            statusEl.innerText = "CAMERA READY";
+            requestAnimationFrame(predictWebcam);
           };
         })
-        .catch((err) => {
-          statusText.innerText = "CAM ERROR";
+        .catch(() => {
+          statusEl.innerText = "CAM ERROR";
           startBtn.disabled = false;
         });
     }
 
-    function getDistance(p1, p2) {
+    function dist(p1, p2) {
       return Math.hypot(p1.x - p2.x, p1.y - p2.y);
     }
 
-    let lastVideoTime = -1;
+    function drawOverlay(activeStr, noteIdx, rightX, rightY, leftX, leftY, isPlaying) {
+      const W = canvas.width;
+      const H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+
+      const zoneW = W / 4;
+
+      strings.forEach((s, i) => {
+        const x = i * zoneW;
+        const isActive = i === activeStr;
+
+        ctx.fillStyle = isActive
+          ? `rgba(255,110,180,${isPlaying ? 0.18 : 0.10})`
+          : "rgba(255,110,180,0.04)";
+        ctx.fillRect(x, 0, zoneW, H);
+
+        if (i > 0) {
+          ctx.strokeStyle = isActive ? "rgba(255,110,180,0.8)" : "rgba(255,110,180,0.25)";
+          ctx.lineWidth = isActive ? 2 : 1;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, H);
+          ctx.stroke();
+        }
+
+        ctx.save();
+        ctx.fillStyle = isActive ? "#ff6eb4" : "rgba(255,110,180,0.4)";
+        ctx.font = `bold ${isActive ? 14 : 11}px Orbitron, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillText(s.name, x + zoneW / 2, 22);
+        ctx.restore();
+
+        if (isActive && noteIdx >= 0) {
+          const notes = stringNotes[s.name];
+          const noteH = H / 8;
+          notes.forEach((n, ni) => {
+            const ny = H - (ni + 1) * noteH;
+            const isActiveNote = ni === noteIdx;
+            ctx.save();
+            ctx.fillStyle = isActiveNote
+              ? "rgba(255,110,180,0.3)"
+              : "rgba(255,110,180,0.06)";
+            ctx.fillRect(x + 2, ny, zoneW - 4, noteH - 1);
+
+            ctx.fillStyle = isActiveNote ? "#ff6eb4" : "rgba(255,110,180,0.4)";
+            ctx.font = `${isActiveNote ? 11 : 9}px Orbitron, sans-serif`;
+            ctx.textAlign = "center";
+            ctx.fillText(n, x + zoneW / 2, ny + noteH / 2 + 4);
+
+            const ratio = freqRatios[ni];
+            ctx.font = "8px monospace";
+            ctx.fillStyle = isActiveNote ? "rgba(255,200,220,0.9)" : "rgba(255,180,210,0.3)";
+            ctx.fillText(`×${ratio.toFixed(2)}`, x + zoneW / 2, ny + noteH / 2 + 16);
+            ctx.restore();
+          });
+        }
+      });
+
+      const yAxisX = 12;
+      const gradY = ctx.createLinearGradient(0, 0, 0, H);
+      gradY.addColorStop(0, "rgba(255,110,180,0.8)");
+      gradY.addColorStop(1, "rgba(255,110,180,0.1)");
+      ctx.strokeStyle = gradY;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(yAxisX, 10);
+      ctx.lineTo(yAxisX, H - 10);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,110,180,0.7)";
+      ctx.font = "8px Orbitron, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("▲", yAxisX, 8);
+      ctx.fillText("PITCH", yAxisX + 2, H / 2);
+      ctx.fillText("▼", yAxisX, H - 2);
+
+      const xAxisY = H - 14;
+      const gradX = ctx.createLinearGradient(0, 0, W, 0);
+      gradX.addColorStop(0, "rgba(255,110,180,0.1)");
+      gradX.addColorStop(1, "rgba(255,110,180,0.8)");
+      ctx.strokeStyle = gradX;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(20, xAxisY);
+      ctx.lineTo(W - 10, xAxisY);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,110,180,0.7)";
+      ctx.font = "8px Orbitron, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("◄ G3  D4  A4  E5 ►", W / 2, H - 2);
+
+      if (rightX !== null) {
+        const px = rightX * W;
+        const py = rightY * H;
+        ctx.beginPath();
+        ctx.arc(px, py, 10, 0, 2 * Math.PI);
+        ctx.fillStyle = isPlaying ? "#ff6eb4" : "rgba(255,110,180,0.5)";
+        ctx.fill();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.fillStyle = "#fff";
+        ctx.font = "7px Orbitron";
+        ctx.textAlign = "center";
+        ctx.fillText("R", px, py + 3);
+      }
+
+      if (leftX !== null) {
+        const px = leftX * W;
+        const py = leftY * H;
+        ctx.beginPath();
+        ctx.arc(px, py, 10, 0, 2 * Math.PI);
+        ctx.fillStyle = "rgba(255,200,230,0.7)";
+        ctx.fill();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.fillStyle = "#fff";
+        ctx.font = "7px Orbitron";
+        ctx.textAlign = "center";
+        ctx.fillText("L", px, py + 3);
+
+        const barH = (1 - leftY) * (H * 0.8);
+        ctx.fillStyle = "rgba(255,110,180,0.25)";
+        ctx.fillRect(0, H - barH - 10, 8, barH);
+      }
+    }
+
     async function predictWebcam() {
+      if (video.readyState < 2) {
+        requestAnimationFrame(predictWebcam);
+        return;
+      }
+
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
       if (video.currentTime !== lastVideoTime && handLandmarker) {
         lastVideoTime = video.currentTime;
-        let results = handLandmarker.detectForVideo(video, performance.now());
-        
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const results = handLandmarker.detectForVideo(video, performance.now());
 
-        ctx.strokeStyle = "rgba(0, 255, 102, 0.3)";
-        ctx.lineWidth = 1;
-        for (let i = 1; i < 4; i++) {
-          ctx.beginPath();
-          ctx.moveTo((i / 4) * canvas.width, 0);
-          ctx.lineTo((i / 4) * canvas.width, canvas.height);
-          ctx.stroke();
-        }
-
-        let isTriggered = false;
-        let targetFreq = 440;
+        let rightHand = null;
+        let leftHand  = null;
+        let isPlaying = false;
+        let noteIdx   = -1;
 
         if (results.landmarks && results.landmarks.length > 0) {
-          let rightHand = null;
-          let leftHand = null;
-
           results.landmarks.forEach((hand) => {
-            if (hand[8].x > 0.5) rightHand = hand;
+            const wristX = hand[0].x;
+            if (wristX > 0.5) rightHand = hand;
             else leftHand = hand;
           });
 
-          if (!rightHand && results.landmarks[0]) rightHand = results.landmarks[0];
+          if (!rightHand) rightHand = results.landmarks[0];
 
           if (rightHand) {
-            const indexTip = rightHand[8];
-            const x = indexTip.x;
-
-            const stringIdx = Math.min(3, Math.floor(x * 4));
-            const baseFreq = openStrings[stringIdx];
-            targetFreq = baseFreq;
-
-            ctx.fillStyle = "#00ff66";
-            ctx.beginPath();
-            ctx.arc(indexTip.x * canvas.width, indexTip.y * canvas.height, 6, 0, 2 * Math.PI);
-            ctx.fill();
+            const tip = rightHand[8];
+            activeStringIdx = Math.min(3, Math.floor(tip.x * 4));
           }
 
           if (leftHand) {
-            const indexTip = leftHand[8];
-            const y = 1 - indexTip.y;
-
-            targetFreq = targetFreq * Math.pow(2, y);
-
-            ctx.fillStyle = "#00ff66";
-            ctx.beginPath();
-            ctx.arc(indexTip.x * canvas.width, indexTip.y * canvas.height, 6, 0, 2 * Math.PI);
-            ctx.fill();
-
-            const thumbTip = leftHand[4];
-            const pinchDist = getDistance(thumbTip, indexTip);
-            if (pinchDist < 0.06) {
-              isTriggered = true;
-            }
+            const tip   = leftHand[8];
+            const thumb = leftHand[4];
+            pitchMod  = 1 - tip.y;
+            const pinch = dist(tip, thumb);
+            isPlaying = pinch < 0.07;
           } else {
-            isTriggered = true;
+            isPlaying = true;
           }
 
-          if (audioCtx && audioCtx.state === "running") {
-            osc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.02);
-            gainNode.gain.setTargetAtTime(isTriggered ? 0.3 : 0, audioCtx.currentTime, 0.03);
+          if (rightHand && audioCtx) {
+            const base  = strings[activeStringIdx].freq;
+            const r     = setFrequency(base, pitchMod);
+            noteIdx     = r.noteIdx;
+            gainNode.gain.setTargetAtTime(isPlaying ? 0.35 : 0, audioCtx.currentTime, 0.008);
           }
         } else {
+          activeStringIdx = -1;
           if (gainNode && audioCtx) {
-            gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.03);
+            gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.008);
           }
         }
+
+        const rTip = rightHand ? rightHand[8] : null;
+        const lTip = leftHand  ? leftHand[8]  : null;
+
+        drawOverlay(
+          activeStringIdx,
+          noteIdx,
+          rTip ? rTip.x : null,
+          rTip ? rTip.y : null,
+          lTip ? lTip.x : null,
+          lTip ? lTip.y : null,
+          isPlaying
+        );
       }
       requestAnimationFrame(predictWebcam);
     }
 
     startBtn.addEventListener("click", (e) => {
       e.target.disabled = true;
-      if (screen.orientation && screen.orientation.lock) {
+      if (screen.orientation?.lock) {
         screen.orientation.lock("landscape").catch(() => {});
       }
       initAudio();
@@ -296,18 +501,18 @@
 </head>
 <body>
 
+  <div id="rotate-prompt">ROTATE DEVICE TO LANDSCAPE ↻</div>
+
   <div id="crt-container">
-    <video id="webcam" playsinline></video>
+    <video id="webcam" playsinline muted autoplay></video>
     <canvas id="output"></canvas>
   </div>
 
-  <div id="controls">
+  <div id="ui-bottom">
+    <div id="status"></div>
     <button id="start-btn">START</button>
+    <div id="footer">&copy; &lt;/H&gt;</div>
   </div>
-
-  <div id="status"></div>
-
-  <div id="footer">&copy; &lt;/H&gt; — All Rights Reserved</div>
 
 </body>
 </html>
