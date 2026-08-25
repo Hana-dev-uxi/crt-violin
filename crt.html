@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Retro CRT Violin</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      background: #1a1a1a;
+      color: #222;
+      font-family: 'Orbitron', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 10px;
+      overflow: hidden;
+    }
+
+    #crt-container {
+      position: relative;
+      width: 100%;
+      max-width: 1000px;
+      aspect-ratio: 4 / 3;
+      border: 4px solid #000;
+      background: #000;
+      max-height: 80vh;
+    }
+
+    #crt-container::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      right: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.15) 0px,
+        rgba(0, 0, 0, 0.15) 1px,
+        transparent 1px,
+        transparent 2px
+      );
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    video, canvas {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      transform: scaleX(-1);
+      display: block;
+    }
+
+    #controls {
+      margin-top: 15px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    button {
+      background: light-pink;
+      color: black;
+      padding: 10px 16px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      border: 2px solid pink;
+      cursor: pointer;
+      transition: all 0.1s;
+    }
+
+    button:active {
+      background: grey;
+      color: pink;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 10px;
+      color: #00ff66;
+      font-family: 'Orbitron', sans-serif;
+      min-height: 15px;
+    }
+
+    #footer {
+      font-size: 8px;
+      color: #666;
+      margin-top: 8px;
+      font-family: monospace;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        padding: 5px;
+      }
+
+      #crt-container {
+        max-height: 70vh;
+      }
+
+      button {
+        padding: 8px 12px;
+        font-size: 9px;
+      }
+
+      #status {
+        font-size: 9px;
+      }
+    }
+  </style>
+
+  <script type="module">
+    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35";
+
+    let audioCtx, osc, gainNode;
+    let handLandmarker;
+    const video = document.getElementById("webcam");
+    const canvas = document.getElementById("output");
+    const ctx = canvas.getContext("2d");
+    const statusText = document.getElementById("status");
+    const startBtn = document.getElementById("start-btn");
+
+    const openStrings = [196.00, 293.66, 440.00, 659.25];
+
+    function initAudio() {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      osc = audioCtx.createOscillator();
+      osc.type = "sawtooth";
+
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 1400;
+
+      gainNode = audioCtx.createGain();
+      gainNode.gain.value = 0;
+
+      osc.connect(filter);
+      filter.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      osc.start();
+    }
+
+    async function initTracker() {
+      statusText.innerText = "LOADING VISION...";
+      try {
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm"
+        );
+        handLandmarker = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+            delegate: "GPU"
+          },
+          runningMode: "VIDEO",
+          numHands: 2
+        });
+        statusText.innerText = "CAMERA ACTIVE";
+        startCamera();
+      } catch (err) {
+        statusText.innerText = "LOAD FAILED";
+        startBtn.disabled = false;
+      }
+    }
+
+    function startCamera() {
+      navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } })
+        .then((stream) => {
+          video.srcObject = stream;
+          video.play();
+          video.addEventListener("loadeddata", predictWebcam);
+        })
+        .catch(() => {
+          statusText.innerText = "CAMERA DENIED";
+          startBtn.disabled = false;
+        });
+    }
+
+    function getDistance(p1, p2) {
+      return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    }
+
+    let lastVideoTime = -1;
+    async function predictWebcam() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      if (video.currentTime !== lastVideoTime && handLandmarker) {
+        lastVideoTime = video.currentTime;
+        let results = handLandmarker.detectForVideo(video, performance.now());
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "rgba(0, 255, 102, 0.3)";
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 4; i++) {
+          ctx.beginPath();
+          ctx.moveTo((i / 4) * canvas.width, 0);
+          ctx.lineTo((i / 4) * canvas.width, canvas.height);
+          ctx.stroke();
+        }
+
+        let isTriggered = false;
+        let targetFreq = 440;
+
+        if (results.landmarks && results.landmarks.length > 0) {
+          let leftHand = null;
+          let rightHand = null;
+
+          results.landmarks.forEach((hand) => {
+            if (hand[8].x > 0.5) leftHand = hand;
+            else rightHand = hand;
+          });
+
+          if (!leftHand && results.landmarks[0]) leftHand = results.landmarks[0];
+
+          if (leftHand) {
+            const indexTip = leftHand[8];
+            const x = 1 - indexTip.x;
+            const y = 1 - indexTip.y;
+
+            const stringIdx = Math.min(3, Math.floor(x * 4));
+            const baseFreq = openStrings[stringIdx];
+            targetFreq = baseFreq * Math.pow(2, y);
+
+            ctx.fillStyle = "#00ff66";
+            ctx.beginPath();
+            ctx.arc((1 - indexTip.x) * canvas.width, indexTip.y * canvas.height, 6, 0, 2 * Math.PI);
+            ctx.fill();
+          }
+
+          if (rightHand) {
+            const thumbTip = rightHand[4];
+            const indexTip = rightHand[8];
+            
+            const pinchDist = getDistance(thumbTip, indexTip);
+            if (pinchDist < 0.06) {
+              isTriggered = true;
+            }
+
+            ctx.fillStyle = isTriggered ? "#00ff66" : "rgba(0, 255, 102, 0.3)";
+            ctx.beginPath();
+            ctx.arc((1 - indexTip.x) * canvas.width, indexTip.y * canvas.height, 8, 0, 2 * Math.PI);
+            ctx.fill();
+          } else {
+            isTriggered = true;
+          }
+
+          if (audioCtx && audioCtx.state === "running") {
+            osc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.02);
+            gainNode.gain.setTargetAtTime(isTriggered ? 0.3 : 0, audioCtx.currentTime, 0.03);
+          }
+        } else {
+          if (gainNode && audioCtx) {
+            gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.03);
+          }
+        }
+      }
+      requestAnimationFrame(predictWebcam);
+    }
+
+    startBtn.addEventListener("click", (e) => {
+      e.target.disabled = true;
+      initAudio();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      initTracker();
+    });
+  </script>
+</head>
+<body>
+
+  <div id="crt-container">
+    <video id="webcam" playsinline></video>
+    <canvas id="output"></canvas>
+  </div>
+
+  <div id="controls">
+    <button id="start-btn">START</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div id="footer" style="font-size: 3px; color: #fbfbfb;">&copy; &lt;/H&gt; — All Rights Reserved</div>
+
+</body>
+</html>
