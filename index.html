@@ -285,8 +285,12 @@
 
       if (res.landmarks?.length > 0) {
         res.landmarks.forEach(hand => {
-          if (isFist(hand)) { if (!fistHand) fistHand = hand; }
-          else { if (!fingerHand) fingerHand = hand; }
+          const wristY = hand[0].y * H;
+          if (wristY >= footerY) {
+            if (!fistHand) fistHand = hand;
+          } else {
+            if (!fingerHand) fingerHand = hand;
+          }
         });
       }
 
@@ -304,12 +308,10 @@
       if (fingerHand) {
         const tip = fingerHand[8];
         const py  = tip.y * H;
-        if (py < footerY) {
-          const pitchMod = Math.max(0, Math.min(1, 1 - (py / footerY)));
-          const targetNote = Math.max(0, Math.min(7, Math.floor(pitchMod * 8)));
-          smoothNote = lerp(smoothNote, targetNote, 0.35);
-          curNoteIdx = Math.round(smoothNote);
-        }
+        const pitchMod = Math.max(0, Math.min(1, 1 - (py / footerY)));
+        const targetNote = Math.max(0, Math.min(7, Math.floor(pitchMod * 8)));
+        smoothNote = lerp(smoothNote, targetNote, 0.35);
+        curNoteIdx = Math.round(smoothNote);
       }
 
       if (audioCtx) {
