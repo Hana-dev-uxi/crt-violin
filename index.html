@@ -43,35 +43,52 @@
       "E5":["E5","F#5","G5","A5","B5","C6","D6","E6"],
     };
 
+    const HAND_CONNECTIONS = [
+      [0,1],[1,2],[2,3],[3,4],
+      [0,5],[5,6],[6,7],[7,8],
+      [5,9],[9,10],[10,11],[11,12],
+      [9,13],[13,14],[14,15],[15,16],
+      [13,17],[17,18],[18,19],[19,20],
+      [0,17]
+    ];
+
     let audioCtx, osc, h2, h3, gainNode;
     let handLandmarker, lastT = -1, ready = false;
+
+    let curStrIdx = 0;
+    let curNoteIdx = 4;
+    let curPlaying = false;
+    let smoothStr = 0;
+    let smoothNote = 4;
+
+    function lerp(a, b, t) { return a + (b - a) * t; }
 
     function initAudio() {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
       const lp = audioCtx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.frequency.value = 2800;
-      lp.Q.value = 0.6;
+      lp.frequency.value = 2200;
+      lp.Q.value = 0.5;
 
       const formant = audioCtx.createBiquadFilter();
       formant.type = "peaking";
-      formant.frequency.value = 750;
-      formant.gain.value = 6;
-      formant.Q.value = 1.8;
+      formant.frequency.value = 650;
+      formant.gain.value = 3.5;
+      formant.Q.value = 1.2;
 
       gainNode = audioCtx.createGain();
       gainNode.gain.value = 0;
 
       const master = audioCtx.createGain();
-      master.gain.value = 0.15;
+      master.gain.value = 0.13;
 
-      osc = audioCtx.createOscillator(); osc.type = "sawtooth"; osc.frequency.value = 440;
+      osc = audioCtx.createOscillator(); osc.type = "triangle"; osc.frequency.value = 440;
       h2  = audioCtx.createOscillator(); h2.type  = "sawtooth"; h2.frequency.value  = 880;
-      h3  = audioCtx.createOscillator(); h3.type  = "sawtooth"; h3.frequency.value  = 1320;
+      h3  = audioCtx.createOscillator(); h3.type  = "sine";     h3.frequency.value  = 1320;
 
-      const g2 = audioCtx.createGain(); g2.gain.value = 0.28;
-      const g3 = audioCtx.createGain(); g3.gain.value = 0.10;
+      const g2 = audioCtx.createGain(); g2.gain.value = 0.15;
+      const g3 = audioCtx.createGain(); g3.gain.value = 0.08;
 
       osc.connect(formant);
       h2.connect(g2); g2.connect(lp);
@@ -86,18 +103,18 @@
 
     function setFreq(f) {
       const t = audioCtx.currentTime;
-      osc.frequency.setTargetAtTime(f,     t, 0.015);
-      h2.frequency.setTargetAtTime(f * 2,  t, 0.015);
-      h3.frequency.setTargetAtTime(f * 3,  t, 0.015);
+      osc.frequency.setTargetAtTime(f,     t, 0.04);
+      h2.frequency.setTargetAtTime(f * 2,  t, 0.04);
+      h3.frequency.setTargetAtTime(f * 3,  t, 0.04);
     }
 
     function setGain(on) {
-      gainNode.gain.setTargetAtTime(on ? 1 : 0, audioCtx.currentTime, 0.018);
+      gainNode.gain.setTargetAtTime(on ? 1 : 0, audioCtx.currentTime, 0.05);
     }
 
     function isFist(hand) {
-      const tips   = [8, 12, 16, 20];
-      const mcps   = [5,  9, 13, 17];
+      const tips = [8, 12, 16, 20];
+      const mcps = [5,  9, 13, 17];
       let folded = 0;
       for (let i = 0; i < 4; i++) {
         if (hand[tips[i]].y > hand[mcps[i]].y) folded++;
@@ -118,9 +135,9 @@
           },
           runningMode: "VIDEO",
           numHands: 2,
-          minHandDetectionConfidence: 0.5,
-          minHandPresenceConfidence: 0.5,
-          minTrackingConfidence: 0.45
+          minHandDetectionConfidence: 0.35,
+          minHandPresenceConfidence: 0.35,
+          minTrackingConfidence: 0.3
         });
         statEl.innerText = "READY";
         startCam();
@@ -146,22 +163,40 @@
       }).catch(() => { statEl.innerText = "CAM ERR"; btn.disabled = false; });
     }
 
-    function drawGlow(x, y, label, color) {
+    function drawSkeleton(hand, mirrored, color) {
       const W = canvas.width, H = canvas.height;
-      const px = x * W, py = y * H;
       ctx.save();
-      ctx.shadowColor = color; ctx.shadowBlur = 22;
-      ctx.beginPath(); ctx.arc(px, py, 10, 0, Math.PI*2);
-      ctx.fillStyle = color; ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 6;
+
+      HAND_CONNECTIONS.forEach(([a, b]) => {
+        const pa = hand[a], pb = hand[b];
+        const ax = (mirrored ? 1 - pa.x : pa.x) * W;
+        const ay = pa.y * H;
+        const bx = (mirrored ? 1 - pb.x : pb.x) * W;
+        const by = pb.y * H;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+      });
+
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.fillStyle = "#fff"; ctx.font = "bold 8px Orbitron";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(label, px, py);
+      ctx.fillStyle = color;
+      [0,4,8,12,16,20].forEach(i => {
+        const p = hand[i];
+        const px = (mirrored ? 1 - p.x : p.x) * W;
+        const py = p.y * H;
+        ctx.beginPath();
+        ctx.arc(px, py, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
       ctx.restore();
     }
 
-    function draw(strIdx, noteIdx, rx, ry, lx, ly, playing) {
+    function draw(strIdx, noteIdx, playing, footerY, fistHand, fingerHand) {
       const W = canvas.width, H = canvas.height;
       ctx.clearRect(0, 0, W, H);
       const zW = W / 4;
@@ -169,64 +204,72 @@
       STRINGS.forEach((s, i) => {
         const sx = i * zW;
         const active = i === strIdx;
-        if (active) {
-          ctx.fillStyle = playing ? "rgba(255,110,180,0.18)" : "rgba(255,110,180,0.08)";
-          ctx.fillRect(sx, 0, zW, H);
-        }
-        if (i > 0) {
-          ctx.strokeStyle = active ? "rgba(255,110,180,0.75)" : "rgba(255,110,180,0.18)";
-          ctx.lineWidth = active ? 1.5 : 0.8;
-          ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
-        }
-        ctx.save();
-        ctx.fillStyle = active ? "#ff6eb4" : "rgba(255,110,180,0.3)";
-        ctx.font = (active ? "bold 13" : "11") + "px Orbitron";
-        ctx.textAlign = "center"; ctx.textBaseline = "top";
-        ctx.fillText(s.name, sx + zW / 2, 8);
-        ctx.restore();
 
-        if (active && noteIdx >= 0) {
-          const notes = NOTES[s.name];
-          const nH = H / 8;
-          notes.forEach((n, ni) => {
-            const ny  = H - (ni + 1) * nH;
-            const hot = ni === noteIdx;
-            if (hot) { ctx.fillStyle = "rgba(255,110,180,0.22)"; ctx.fillRect(sx+2, ny, zW-4, nH-1); }
-            ctx.save();
-            ctx.textAlign = "center"; ctx.textBaseline = "middle";
-            ctx.fillStyle = hot ? "#ff6eb4" : "rgba(255,110,180,0.28)";
-            ctx.font = (hot ? "bold 10" : "9") + "px Orbitron";
-            ctx.fillText(n, sx + zW/2, ny + nH*0.38);
-            ctx.font = "7px monospace";
-            ctx.fillStyle = hot ? "rgba(255,210,230,0.9)" : "rgba(255,180,210,0.2)";
-            ctx.fillText("×" + RATIOS[ni].toFixed(3), sx + zW/2, ny + nH*0.72);
-            ctx.restore();
-          });
+        ctx.fillStyle = active
+          ? (playing ? "rgba(255,110,180,0.16)" : "rgba(255,110,180,0.06)")
+          : "rgba(255,110,180,0.02)";
+        ctx.fillRect(sx, footerY, zW, H - footerY);
+
+        if (i > 0) {
+          ctx.strokeStyle = active ? "rgba(255,110,180,0.7)" : "rgba(255,110,180,0.15)";
+          ctx.lineWidth = active ? 1.5 : 0.8;
+          ctx.beginPath();
+          ctx.moveTo(sx, footerY);
+          ctx.lineTo(sx, H);
+          ctx.stroke();
         }
+
+        ctx.save();
+        ctx.fillStyle = active ? "#ff6eb4" : "rgba(255,110,180,0.35)";
+        ctx.font = (active ? "bold 12" : "10") + "px Orbitron";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(s.name, sx + zW / 2, footerY + (H - footerY) / 2);
+        ctx.restore();
       });
 
+      ctx.strokeStyle = "rgba(255,110,180,0.6)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, footerY);
+      ctx.lineTo(W, footerY);
+      ctx.stroke();
+
       ctx.save();
-      ctx.strokeStyle = "rgba(255,110,180,0.4)";
-      ctx.lineWidth = 1; ctx.setLineDash([3,5]);
-      ctx.beginPath(); ctx.moveTo(14, 14); ctx.lineTo(14, H-22); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = "rgba(255,110,180,0.55)";
-      ctx.font = "7px Orbitron"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("▲", 14, 10); ctx.fillText("▼", 14, H-14);
-
-      if (ly !== null) {
-        const bH = (1 - ly) * (H - 44);
-        ctx.fillStyle = "rgba(255,110,180,0.28)";
-        ctx.fillRect(4, H - 28 - bH, 8, bH);
-      }
-
-      ctx.strokeStyle = "rgba(255,110,180,0.4)";
-      ctx.beginPath(); ctx.moveTo(22, H-18); ctx.lineTo(W-10, H-18); ctx.stroke();
-      ctx.fillText("◄", 18, H-18); ctx.fillText("►", W-8, H-18);
+      ctx.fillStyle = "rgba(255,110,180,0.5)";
+      ctx.font = "7px Orbitron";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("PITCH ZONE", 8, 6);
       ctx.restore();
 
-      if (rx !== null) drawGlow(rx, ry, "✊", "#ff6eb4");
-      if (lx !== null) drawGlow(lx, ly, "☝", "#ffb3d9");
+      if (noteIdx >= 0 && strIdx >= 0) {
+        const notes = NOTES[STRINGS[strIdx].name];
+        const zoneH = footerY;
+        const nH = zoneH / 8;
+        notes.forEach((n, ni) => {
+          const ny = zoneH - (ni + 1) * nH;
+          const hot = ni === noteIdx;
+          if (hot) {
+            ctx.fillStyle = "rgba(255,110,180,0.15)";
+            ctx.fillRect(0, ny, W, nH - 1);
+          }
+          ctx.save();
+          ctx.fillStyle = hot ? "#ff6eb4" : "rgba(255,110,180,0.22)";
+          ctx.font = (hot ? "bold 11" : "9") + "px Orbitron";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText(n, 10, ny + nH / 2);
+          ctx.font = "8px monospace";
+          ctx.fillStyle = hot ? "rgba(255,210,230,0.9)" : "rgba(255,180,210,0.18)";
+          ctx.textAlign = "right";
+          ctx.fillText("×" + RATIOS[ni].toFixed(3), W - 10, ny + nH / 2);
+          ctx.restore();
+        });
+      }
+
+      if (fingerHand) drawSkeleton(fingerHand, true, "rgba(255,179,217,0.9)");
+      if (fistHand)   drawSkeleton(fistHand, true, "#ff6eb4");
     }
 
     function loop() {
@@ -235,50 +278,47 @@
       lastT = video.currentTime;
 
       const res = handLandmarker.detectForVideo(video, performance.now());
+      const W = canvas.width, H = canvas.height;
+      const footerY = H * 0.32;
 
       let fistHand = null, fingerHand = null;
 
       if (res.landmarks?.length > 0) {
         res.landmarks.forEach(hand => {
-          if (isFist(hand)) fistHand   = hand;
-          else              fingerHand = hand;
+          if (isFist(hand)) { if (!fistHand) fistHand = hand; }
+          else { if (!fingerHand) fingerHand = hand; }
         });
-        if (res.landmarks.length === 1) {
-          if (isFist(res.landmarks[0])) fistHand   = res.landmarks[0];
-          else                          fingerHand = res.landmarks[0];
-        }
       }
-
-      let strIdx = -1, noteIdx = -1, playing = false;
-      let rx = null, ry = null, lx = null, ly = null;
 
       if (fistHand) {
         const tip = fistHand[9];
-        rx = 1 - tip.x; ry = tip.y;
-        strIdx = Math.min(3, Math.floor(rx * 4));
-        playing = true;
+        const rx = 1 - tip.x;
+        const targetStr = Math.max(0, Math.min(3, Math.floor(rx * 4)));
+        smoothStr = lerp(smoothStr, targetStr, 0.35);
+        curStrIdx = Math.round(smoothStr);
+        curPlaying = true;
+      } else {
+        curPlaying = false;
       }
 
       if (fingerHand) {
         const tip = fingerHand[8];
-        lx = 1 - tip.x; ly = tip.y;
-        const pitchMod = Math.max(0, Math.min(1, 1 - ly));
-        noteIdx = Math.min(7, Math.floor(pitchMod * 8));
-      }
-
-      if (audioCtx) {
-        if (strIdx >= 0 && noteIdx >= 0) {
-          setFreq(STRINGS[strIdx].freq * RATIOS[noteIdx]);
-          setGain(playing);
-        } else if (strIdx >= 0) {
-          setFreq(STRINGS[strIdx].freq);
-          setGain(playing);
-        } else {
-          setGain(false);
+        const py  = tip.y * H;
+        if (py < footerY) {
+          const pitchMod = Math.max(0, Math.min(1, 1 - (py / footerY)));
+          const targetNote = Math.max(0, Math.min(7, Math.floor(pitchMod * 8)));
+          smoothNote = lerp(smoothNote, targetNote, 0.35);
+          curNoteIdx = Math.round(smoothNote);
         }
       }
 
-      draw(strIdx, noteIdx, rx, ry, lx, ly, playing);
+      if (audioCtx) {
+        const f = STRINGS[curStrIdx].freq * RATIOS[curNoteIdx];
+        setFreq(f);
+        setGain(curPlaying);
+      }
+
+      draw(curStrIdx, curNoteIdx, curPlaying, footerY, fistHand, fingerHand);
       requestAnimationFrame(loop);
     }
 
